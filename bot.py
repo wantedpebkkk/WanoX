@@ -364,9 +364,9 @@ async def _award_xp_for_message(message: discord.Message) -> None:
             profile["xp"] -= xp_needed
             profile["level"] += 1
             leveled_up = True
-        new_level = profile["level"]
+        new_level = profile["level"] if leveled_up else None
         await _save_level_data()
-    if leveled_up and new_level is not None:
+    if new_level is not None:
         await _send_level_up_message(message, new_level)
 
 
@@ -884,7 +884,7 @@ async def userinfo(ctx, member: discord.Member = None):
 @bot.command(name="level", aliases=["rank"])
 @commands.guild_only()
 async def level(ctx, member: discord.Member | None = None):
-    """Show level progress for a member."""
+    """Show level progress for a member (defaults to yourself)."""
     if not LEVELING_ENABLED:
         await ctx.send("❌ Leveling is currently disabled.")
         return
