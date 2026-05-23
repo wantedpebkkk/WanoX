@@ -19,6 +19,9 @@ bot_stats = {
     "command_count": 0,
     "start_time": time.time(),
     "status": "offline",
+    "prefix": "Wa!",
+    "latency_ms": None,
+    "last_updated": None,
 }
 
 # ──────────────────────────────────────────────
@@ -29,12 +32,12 @@ app = Flask(__name__, template_folder="templates", static_folder="static")
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", prefix=bot_stats.get("prefix", "Wa!"))
 
 
 @app.route("/commands")
 def commands_page():
-    return render_template("commands.html")
+    return render_template("commands.html", prefix=bot_stats.get("prefix", "Wa!"))
 
 
 @app.route("/api/stats")
@@ -44,6 +47,7 @@ def api_stats():
     hours, remainder = divmod(uptime_seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
     stats["uptime"] = f"{hours}h {minutes}m {seconds}s"
+    stats["last_updated"] = stats.get("last_updated") or int(time.time())
     return jsonify(stats)
 
 

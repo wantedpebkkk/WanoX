@@ -164,6 +164,11 @@ body {
   margin-bottom: 1.2rem;
 }
 
+.prefix-hint {
+  margin-top: -0.6rem;
+  margin-bottom: 1rem;
+}
+
 .hero code {
   background: var(--surface);
   color: var(--accent);
@@ -245,6 +250,11 @@ body {
   color: var(--text-muted);
   font-size: 0.82rem;
   margin-top: 1.5rem;
+}
+
+.refresh-hint span {
+  display: inline-block;
+  margin-left: 0.5rem;
 }
 
 /* ── Commands page ──────────────────────────── */

@@ -9,7 +9,7 @@
 <body>
   <nav class="navbar">
     <div class="nav-brand">
-      <span class="bot-dot online"></span>
+      <span class="bot-dot" id="nav-dot"></span>
       WondeX
     </div>
     <div class="nav-links">
@@ -21,7 +21,8 @@
   <main class="container">
     <section class="hero">
       <h1>Commands</h1>
-      <p>All available commands for WondeX. Prefix: <code>Wa!</code></p>
+      <p>All available commands for WondeX. Prefix: <code>{{ prefix }}</code></p>
+      <span class="badge" id="status-badge">● Connecting…</span>
     </section>
 
     <!-- Moderation -->
@@ -31,49 +32,49 @@
 
         <div class="command-card">
           <div class="cmd-name">kick</div>
-          <code class="cmd-usage">Wa!kick &lt;member&gt; [reason]</code>
+          <code class="cmd-usage">{{ prefix }}kick &lt;member&gt; [reason]</code>
           <p class="cmd-desc">Kick a member from the server.</p>
           <span class="cmd-perm">Kick Members</span>
         </div>
 
         <div class="command-card">
           <div class="cmd-name">ban</div>
-          <code class="cmd-usage">Wa!ban &lt;member&gt; [reason]</code>
+          <code class="cmd-usage">{{ prefix }}ban &lt;member&gt; [reason]</code>
           <p class="cmd-desc">Permanently ban a member from the server.</p>
           <span class="cmd-perm">Ban Members</span>
         </div>
 
         <div class="command-card">
           <div class="cmd-name">unban</div>
-          <code class="cmd-usage">Wa!unban &lt;user#tag&gt;</code>
+          <code class="cmd-usage">{{ prefix }}unban &lt;user#tag&gt;</code>
           <p class="cmd-desc">Unban a member by their username#discriminator.</p>
           <span class="cmd-perm">Ban Members</span>
         </div>
 
         <div class="command-card">
           <div class="cmd-name">mute</div>
-          <code class="cmd-usage">Wa!mute &lt;member&gt; [reason]</code>
+          <code class="cmd-usage">{{ prefix }}mute &lt;member&gt; [reason]</code>
           <p class="cmd-desc">Mute a member by assigning the Muted role (creates it if missing).</p>
           <span class="cmd-perm">Manage Roles</span>
         </div>
 
         <div class="command-card">
           <div class="cmd-name">unmute</div>
-          <code class="cmd-usage">Wa!unmute &lt;member&gt;</code>
+          <code class="cmd-usage">{{ prefix }}unmute &lt;member&gt;</code>
           <p class="cmd-desc">Remove the Muted role from a member.</p>
           <span class="cmd-perm">Manage Roles</span>
         </div>
 
         <div class="command-card">
           <div class="cmd-name">warn</div>
-          <code class="cmd-usage">Wa!warn &lt;member&gt; [reason]</code>
+          <code class="cmd-usage">{{ prefix }}warn &lt;member&gt; [reason]</code>
           <p class="cmd-desc">Warn a member via DM and log it in the channel.</p>
           <span class="cmd-perm">Manage Messages</span>
         </div>
 
         <div class="command-card">
           <div class="cmd-name">purge</div>
-          <code class="cmd-usage">Wa!purge &lt;1–100&gt;</code>
+          <code class="cmd-usage">{{ prefix }}purge &lt;1–100&gt;</code>
           <p class="cmd-desc">Bulk-delete up to 100 messages from the current channel.</p>
           <span class="cmd-perm">Manage Messages</span>
         </div>
@@ -88,28 +89,28 @@
 
         <div class="command-card">
           <div class="cmd-name">lockdown</div>
-          <code class="cmd-usage">Wa!lockdown</code>
+          <code class="cmd-usage">{{ prefix }}lockdown</code>
           <p class="cmd-desc">Deny @everyone from sending messages in the current channel.</p>
           <span class="cmd-perm">Manage Channels</span>
         </div>
 
         <div class="command-card">
           <div class="cmd-name">unlock</div>
-          <code class="cmd-usage">Wa!unlock</code>
+          <code class="cmd-usage">{{ prefix }}unlock</code>
           <p class="cmd-desc">Restore @everyone message permissions in the current channel.</p>
           <span class="cmd-perm">Manage Channels</span>
         </div>
 
         <div class="command-card">
           <div class="cmd-name">serverinfo</div>
-          <code class="cmd-usage">Wa!serverinfo</code>
+          <code class="cmd-usage">{{ prefix }}serverinfo</code>
           <p class="cmd-desc">Display info about the server: owner, members, channels, roles, creation date.</p>
           <span class="cmd-perm">Everyone</span>
         </div>
 
         <div class="command-card">
           <div class="cmd-name">userinfo</div>
-          <code class="cmd-usage">Wa!userinfo [member]</code>
+          <code class="cmd-usage">{{ prefix }}userinfo [member]</code>
           <p class="cmd-desc">Display info about a member (defaults to yourself).</p>
           <span class="cmd-perm">Everyone</span>
         </div>
@@ -124,7 +125,7 @@
 
         <div class="command-card">
           <div class="cmd-name">ticketpanel</div>
-          <code class="cmd-usage">Wa!ticketpanel</code>
+          <code class="cmd-usage">{{ prefix }}ticketpanel</code>
           <p class="cmd-desc">
             Post the ticket panel with an <strong>Open Ticket 🎫</strong> button.
             Members click it to create a private support channel.
@@ -143,7 +144,7 @@
 
         <div class="command-card">
           <div class="cmd-name">help</div>
-          <code class="cmd-usage">Wa!help</code>
+          <code class="cmd-usage">{{ prefix }}help</code>
           <p class="cmd-desc">Show a summary of all available commands in Discord.</p>
           <span class="cmd-perm">Everyone</span>
         </div>
@@ -156,5 +157,29 @@
   <footer class="footer">
     <p>WondeX Bot &copy; 2024 &mdash; Built with discord.py &amp; Flask</p>
   </footer>
+  <script>
+    async function refreshStatus() {
+      try {
+        const res = await fetch('/api/stats');
+        const d = await res.json();
+        const dot = document.getElementById('nav-dot');
+        const badge = document.getElementById('status-badge');
+        if (d.status === 'online') {
+          dot.classList.add('online');
+          badge.textContent = '● Online';
+          badge.className = 'badge online';
+        } else {
+          dot.classList.remove('online');
+          badge.textContent = '● Offline';
+          badge.className = 'badge offline';
+        }
+      } catch (e) {
+        console.error('Could not fetch stats:', e);
+      }
+    }
+
+    refreshStatus();
+    setInterval(refreshStatus, 30000);
+  </script>
 </body>
 </html>
