@@ -281,8 +281,6 @@ def _save_level_data_sync(data: dict[str, dict[str, dict[str, int]]]) -> None:
 async def _ensure_level_data_loaded() -> None:
     global _levels_loaded
     global _level_data
-    if _levels_loaded:
-        return
     async with _level_data_lock:
         if _levels_loaded:
             return
@@ -342,18 +340,18 @@ async def _send_level_up_message(message: discord.Message, new_level: int) -> No
 async def _award_xp_for_message(message: discord.Message) -> None:
     if not LEVELING_ENABLED:
         return
-    if not message.guild or message.author.bot:
+    if not message.guild:
         return
     cooldown = LEVEL_XP_COOLDOWN_SECONDS
     now = time.time()
     key = (message.guild.id, message.author.id)
     last_time = _level_cooldowns.get(key)
-    if cooldown and last_time and now - last_time < cooldown:
+    if cooldown > 0 and last_time and now - last_time < cooldown:
         return
     _level_cooldowns[key] = now
     await _ensure_level_data_loaded()
     leveled_up = False
-    new_level = None
+    profile_level = None
     async with _level_data_lock:
         profile = _get_level_profile(message.guild.id, message.author.id)
         profile["xp"] += LEVEL_XP_PER_MESSAGE
@@ -364,10 +362,10 @@ async def _award_xp_for_message(message: discord.Message) -> None:
             profile["xp"] -= xp_needed
             profile["level"] += 1
             leveled_up = True
-        new_level = profile["level"] if leveled_up else None
+        profile_level = profile["level"]
         await _save_level_data()
-    if new_level is not None:
-        await _send_level_up_message(message, new_level)
+    if leveled_up and profile_level is not None:
+        await _send_level_up_message(message, profile_level)
 
 
 # ──────────────────────────────────────────────
