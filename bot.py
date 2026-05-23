@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import time
+from pathlib import Path
 import discord
 from discord.ext import commands, tasks
 from dashboard import bot_stats, start_dashboard_thread
@@ -55,6 +56,37 @@ def _get_env_int(
     return value
 
 
+def _get_env_float(
+    name: str,
+    *,
+    default: float | None = None,
+    minimum: float | None = None,
+    maximum: float | None = None,
+) -> float | None:
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning("Invalid %s=%r; using %r.", name, raw, default)
+        return default
+    if minimum is not None and value < minimum:
+        logger.warning("Invalid %s=%r below %.2f; using %r.", name, value, minimum, default)
+        return default
+    if maximum is not None and value > maximum:
+        logger.warning("Invalid %s=%r above %.2f; using %r.", name, value, maximum, default)
+        return default
+    return value
+
+
+def _get_env_bool(name: str, *, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _get_prefix(default: str = "Wa!") -> str:
     prefix = (os.environ.get("BOT_PREFIX") or default).strip()
     if not prefix:
@@ -81,6 +113,38 @@ DASHBOARD_PORT = _get_env_int(
     minimum=1,
     maximum=65535,
 )
+LEVELING_ENABLED = _get_env_bool("LEVELING_ENABLED", default=True)
+LEVEL_XP_PER_MESSAGE = _get_env_int(
+    "LEVEL_XP_PER_MESSAGE",
+    default=15,
+    minimum=1,
+    maximum=1000,
+)
+LEVEL_XP_COOLDOWN_SECONDS = _get_env_int(
+    "LEVEL_XP_COOLDOWN_SECONDS",
+    default=60,
+    minimum=0,
+    maximum=3600,
+)
+LEVEL_XP_BASE = _get_env_int(
+    "LEVEL_XP_BASE",
+    default=100,
+    minimum=1,
+    maximum=1000000,
+)
+LEVEL_XP_MULTIPLIER = _get_env_float(
+    "LEVEL_XP_MULTIPLIER",
+    default=1.25,
+    minimum=1.0,
+    maximum=10.0,
+)
+LEVEL_UP_CHANNEL_ID = _get_env_int("LEVEL_UP_CHANNEL_ID")
+LEVEL_DATA_PATH = Path(
+    os.environ.get("LEVEL_DATA_PATH")
+    or (Path(__file__).resolve().parent / ".data" / "levels.json")
+)
+if not LEVEL_DATA_PATH.is_absolute():
+    LEVEL_DATA_PATH = (Path(__file__).resolve().parent / LEVEL_DATA_PATH).resolve()
 
 # ──────────────────────────────────────────────
 # Bot configuration
@@ -95,6 +159,11 @@ bot_stats["prefix"] = COMMAND_PREFIX
 # Track whether the dashboard thread has been started
 _dashboard_started = False
 _stats_loop_started = False
+_levels_loaded = False
+_level_data_lock = asyncio.Lock()
+_level_data: dict[str, dict[str, dict[str, int]]] = {}
+_level_cooldowns: dict[tuple[int, int], float] = {}
+_views_registered = False
 
 # ──────────────────────────────────────────────
 # Graceful shutdown helper
@@ -175,6 +244,131 @@ async def _send_interaction_message(
 
 
 # ──────────────────────────────────────────────
+# Leveling helpers
+# ──────────────────────────────────────────────
+
+def _xp_needed_for_level(level: int) -> int:
+    base = LEVEL_XP_BASE
+    multiplier = LEVEL_XP_MULTIPLIER
+    needed = int(base * (multiplier ** max(level - 1, 0)))
+    return max(needed, 1)
+
+
+def _load_level_data_sync() -> dict[str, dict[str, dict[str, int]]]:
+    LEVEL_DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if not LEVEL_DATA_PATH.exists():
+        return {}
+    try:
+        with LEVEL_DATA_PATH.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        logger.exception("Failed to load level data from %s.", LEVEL_DATA_PATH)
+        return {}
+    if not isinstance(data, dict):
+        logger.warning("Level data file %s had invalid structure.", LEVEL_DATA_PATH)
+        return {}
+    return data
+
+
+def _save_level_data_sync(data: dict[str, dict[str, dict[str, int]]]) -> None:
+    LEVEL_DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = LEVEL_DATA_PATH.with_suffix(".tmp")
+    with temp_path.open("w", encoding="utf-8") as handle:
+        json.dump(data, handle, indent=2, sort_keys=True)
+    temp_path.replace(LEVEL_DATA_PATH)
+
+
+async def _ensure_level_data_loaded() -> None:
+    global _levels_loaded
+    global _level_data
+    async with _level_data_lock:
+        if _levels_loaded:
+            return
+        _level_data = await asyncio.to_thread(_load_level_data_sync)
+        _levels_loaded = True
+
+
+def _get_level_profile(guild_id: int, user_id: int) -> dict[str, int]:
+    guild_key = str(guild_id)
+    user_key = str(user_id)
+    guild_data = _level_data.setdefault(guild_key, {})
+    profile = guild_data.get(user_key)
+    if not isinstance(profile, dict):
+        profile = {}
+    level = int(profile.get("level", 1) or 1)
+    xp = int(profile.get("xp", 0) or 0)
+    profile = {"level": max(level, 1), "xp": max(xp, 0)}
+    guild_data[user_key] = profile
+    return profile
+
+
+async def _save_level_data() -> None:
+    try:
+        await asyncio.to_thread(_save_level_data_sync, _level_data)
+    except OSError:
+        logger.exception("Failed to save level data to %s.", LEVEL_DATA_PATH)
+
+
+async def _send_level_up_message(message: discord.Message, new_level: int) -> None:
+    if not message.guild:
+        return
+    channel: discord.abc.Messageable | None = None
+    if LEVEL_UP_CHANNEL_ID:
+        candidate = message.guild.get_channel(LEVEL_UP_CHANNEL_ID)
+        if isinstance(candidate, discord.abc.Messageable):
+            channel = candidate
+    if channel is None:
+        channel = message.channel
+    if not isinstance(channel, discord.abc.Messageable):
+        return
+    bot_member = _get_bot_member(message.guild)
+    if not bot_member or not channel.permissions_for(bot_member).send_messages:
+        return
+    embed = discord.Embed(
+        title="🎉 Level Up!",
+        description=f"{message.author.mention} reached **Level {new_level}**!",
+        color=discord.Color.gold(),
+    )
+    try:
+        await channel.send(embed=embed)
+    except discord.Forbidden:
+        logger.warning("Missing permissions to send level-up message in guild %s.", message.guild.id)
+    except discord.HTTPException:
+        logger.exception("Failed to send level-up message in guild %s.", message.guild.id)
+
+
+async def _award_xp_for_message(message: discord.Message) -> None:
+    if not LEVELING_ENABLED:
+        return
+    if not message.guild:
+        return
+    cooldown = LEVEL_XP_COOLDOWN_SECONDS
+    now = time.time()
+    key = (message.guild.id, message.author.id)
+    last_time = _level_cooldowns.get(key)
+    if cooldown > 0 and last_time and now - last_time < cooldown:
+        return
+    _level_cooldowns[key] = now
+    await _ensure_level_data_loaded()
+    leveled_up = False
+    profile_level = None
+    async with _level_data_lock:
+        profile = _get_level_profile(message.guild.id, message.author.id)
+        profile["xp"] += LEVEL_XP_PER_MESSAGE
+        while True:
+            xp_needed = _xp_needed_for_level(profile["level"])
+            if profile["xp"] < xp_needed:
+                break
+            profile["xp"] -= xp_needed
+            profile["level"] += 1
+            leveled_up = True
+        profile_level = profile["level"]
+        await _save_level_data()
+    if leveled_up and profile_level is not None:
+        await _send_level_up_message(message, profile_level)
+
+
+# ──────────────────────────────────────────────
 # Events
 # ──────────────────────────────────────────────
 
@@ -182,11 +376,14 @@ async def _send_interaction_message(
 async def on_ready():
     global _dashboard_started
     global _stats_loop_started
+    global _views_registered
     print(f"✅  Logged in as {bot.user} (ID: {bot.user.id})")
     _log_event("bot_ready", bot=str(bot.user), bot_id=bot.user.id)
     # Register persistent views so buttons keep working after restarts
-    bot.add_view(TicketPanelView())
-    bot.add_view(CloseClaimView())
+    if not _views_registered:
+        _views_registered = True
+        bot.add_view(TicketPanelView())
+        bot.add_view(CloseClaimView())
     await bot.change_presence(
         activity=discord.Activity(
             type=discord.ActivityType.watching,
@@ -212,6 +409,7 @@ async def on_ready():
     if not _stats_loop_started:
         _stats_loop_started = True
         _refresh_stats.start()
+    await _ensure_level_data_loaded()
 
 
 @bot.event
@@ -303,6 +501,15 @@ async def on_member_join(member: discord.Member):
     )
     embed.set_thumbnail(url=member.display_avatar.url)
     await channel.send(embed=embed)
+
+
+@bot.event
+async def on_message(message: discord.Message):
+    # Prevent bot messages from triggering commands or XP logic.
+    if message.author.bot:
+        return
+    await _award_xp_for_message(message)
+    await bot.process_commands(message)
 
 
 # ──────────────────────────────────────────────
@@ -669,6 +876,73 @@ async def userinfo(ctx, member: discord.Member = None):
 
 
 # ──────────────────────────────────────────────
+# Leveling commands
+# ──────────────────────────────────────────────
+
+@bot.command(name="level", aliases=["rank"])
+@commands.guild_only()
+async def level(ctx, member: discord.Member | None = None):
+    """Show level progress for a member (defaults to yourself)."""
+    if not LEVELING_ENABLED:
+        await ctx.send("❌ Leveling is currently disabled.")
+        return
+    await _ensure_level_data_loaded()
+    member = member if member is not None else ctx.author
+    async with _level_data_lock:
+        guild_data = _level_data.get(str(ctx.guild.id), {})
+        profile = guild_data.get(str(member.id), {})
+        level_value = int(profile.get("level", 1) or 1)
+        xp_value = int(profile.get("xp", 0) or 0)
+        xp_needed = _xp_needed_for_level(level_value)
+    embed = discord.Embed(
+        title="🎯 Level Progress",
+        description=f"{member.mention} is **Level {level_value}**.",
+        color=discord.Color.blurple(),
+    )
+    embed.add_field(name="XP", value=f"{xp_value}/{xp_needed}", inline=True)
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="leaderboard", aliases=["levels", "top"])
+@commands.guild_only()
+async def leaderboard(ctx):
+    """Show the top 10 members by level (current guild members only)."""
+    if not LEVELING_ENABLED:
+        await ctx.send("❌ Leveling is currently disabled.")
+        return
+    await _ensure_level_data_loaded()
+    member_lookup = {member.id: member for member in ctx.guild.members}
+    async with _level_data_lock:
+        guild_data = _level_data.get(str(ctx.guild.id), {})
+        entries = []
+        for user_id, profile in guild_data.items():
+            if not isinstance(profile, dict):
+                continue
+            member = member_lookup.get(int(user_id))
+            if member is None:
+                continue
+            level_value = int(profile.get("level", 1) or 1)
+            xp_value = int(profile.get("xp", 0) or 0)
+            entries.append((level_value, xp_value, member))
+    if not entries:
+        await ctx.send("No level data yet. Start chatting to earn XP!")
+        return
+    entries.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    lines = []
+    for index, (level_value, xp_value, member) in enumerate(entries[:10], start=1):
+        xp_needed = _xp_needed_for_level(level_value)
+        lines.append(
+            f"**{index}. {member.display_name}** — Level {level_value} ({xp_value}/{xp_needed} XP)"
+        )
+    embed = discord.Embed(
+        title="🏆 Level Leaderboard",
+        description="\n".join(lines),
+        color=discord.Color.gold(),
+    )
+    await ctx.send(embed=embed)
+
+
+# ──────────────────────────────────────────────
 # Ticket system — Xieron-style button panel
 # ──────────────────────────────────────────────
 
@@ -935,6 +1209,14 @@ async def help_command(ctx):
             f"`{COMMAND_PREFIX}unlock`\n"
             f"`{COMMAND_PREFIX}serverinfo`\n"
             f"`{COMMAND_PREFIX}userinfo [member]`"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="🎯 Levels",
+        value=(
+            f"`{COMMAND_PREFIX}level [member]`\n"
+            f"`{COMMAND_PREFIX}leaderboard`"
         ),
         inline=False,
     )
