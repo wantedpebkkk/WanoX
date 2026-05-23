@@ -163,6 +163,7 @@ _levels_loaded = False
 _level_data_lock = asyncio.Lock()
 _level_data: dict[str, dict[str, dict[str, int]]] = {}
 _level_cooldowns: dict[tuple[int, int], float] = {}
+_views_registered = False
 
 # ──────────────────────────────────────────────
 # Graceful shutdown helper
@@ -247,8 +248,8 @@ async def _send_interaction_message(
 # ──────────────────────────────────────────────
 
 def _xp_needed_for_level(level: int) -> int:
-    base = LEVEL_XP_BASE or 100
-    multiplier = LEVEL_XP_MULTIPLIER or 1.0
+    base = LEVEL_XP_BASE
+    multiplier = LEVEL_XP_MULTIPLIER
     needed = int(base * (multiplier ** max(level - 1, 0)))
     return max(needed, 1)
 
@@ -343,7 +344,7 @@ async def _award_xp_for_message(message: discord.Message) -> None:
         return
     if not message.guild or message.author.bot:
         return
-    cooldown = LEVEL_XP_COOLDOWN_SECONDS or 0
+    cooldown = LEVEL_XP_COOLDOWN_SECONDS
     now = time.time()
     key = (message.guild.id, message.author.id)
     last_time = _level_cooldowns.get(key)
@@ -355,7 +356,7 @@ async def _award_xp_for_message(message: discord.Message) -> None:
     new_level = None
     async with _level_data_lock:
         profile = _get_level_profile(message.guild.id, message.author.id)
-        profile["xp"] += LEVEL_XP_PER_MESSAGE or 0
+        profile["xp"] += LEVEL_XP_PER_MESSAGE
         while profile["xp"] >= _xp_needed_for_level(profile["level"]):
             profile["xp"] -= _xp_needed_for_level(profile["level"])
             profile["level"] += 1
@@ -374,11 +375,14 @@ async def _award_xp_for_message(message: discord.Message) -> None:
 async def on_ready():
     global _dashboard_started
     global _stats_loop_started
+    global _views_registered
     print(f"✅  Logged in as {bot.user} (ID: {bot.user.id})")
     _log_event("bot_ready", bot=str(bot.user), bot_id=bot.user.id)
     # Register persistent views so buttons keep working after restarts
-    bot.add_view(TicketPanelView())
-    bot.add_view(CloseClaimView())
+    if not _views_registered:
+        _views_registered = True
+        bot.add_view(TicketPanelView())
+        bot.add_view(CloseClaimView())
     await bot.change_presence(
         activity=discord.Activity(
             type=discord.ActivityType.watching,
@@ -883,11 +887,11 @@ async def level(ctx, member: discord.Member = None):
     await _ensure_level_data_loaded()
     member = member or ctx.author
     async with _level_data_lock:
-        profile = _get_level_profile(ctx.guild.id, member.id)
-        level_value = profile["level"]
-        xp_value = profile["xp"]
+        guild_data = _level_data.get(str(ctx.guild.id), {})
+        profile = guild_data.get(str(member.id), {})
+        level_value = int(profile.get("level", 1) or 1)
+        xp_value = int(profile.get("xp", 0) or 0)
         xp_needed = _xp_needed_for_level(level_value)
-        await _save_level_data()
     embed = discord.Embed(
         title="🎯 Level Progress",
         description=f"{member.mention} is **Level {level_value}**.",
