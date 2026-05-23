@@ -911,13 +911,14 @@ async def leaderboard(ctx):
         await ctx.send("❌ Leveling is currently disabled.")
         return
     await _ensure_level_data_loaded()
+    member_lookup = {member.id: member for member in ctx.guild.members}
     async with _level_data_lock:
         guild_data = _level_data.get(str(ctx.guild.id), {})
         entries = []
         for user_id, profile in guild_data.items():
             if not isinstance(profile, dict):
                 continue
-            member = ctx.guild.get_member(int(user_id))
+            member = member_lookup.get(int(user_id))
             if member is None:
                 continue
             level_value = int(profile.get("level", 1) or 1)
