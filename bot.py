@@ -357,8 +357,11 @@ async def _award_xp_for_message(message: discord.Message) -> None:
     async with _level_data_lock:
         profile = _get_level_profile(message.guild.id, message.author.id)
         profile["xp"] += LEVEL_XP_PER_MESSAGE
-        while profile["xp"] >= _xp_needed_for_level(profile["level"]):
-            profile["xp"] -= _xp_needed_for_level(profile["level"])
+        while True:
+            xp_needed = _xp_needed_for_level(profile["level"])
+            if profile["xp"] < xp_needed:
+                break
+            profile["xp"] -= xp_needed
             profile["level"] += 1
             leveled_up = True
         new_level = profile["level"]
@@ -504,6 +507,7 @@ async def on_member_join(member: discord.Member):
 
 @bot.event
 async def on_message(message: discord.Message):
+    # Prevent bot messages from triggering commands or XP logic.
     if message.author.bot:
         return
     await _award_xp_for_message(message)
@@ -879,13 +883,13 @@ async def userinfo(ctx, member: discord.Member = None):
 
 @bot.command(name="level", aliases=["rank"])
 @commands.guild_only()
-async def level(ctx, member: discord.Member = None):
+async def level(ctx, member: discord.Member | None = None):
     """Show level progress for a member."""
     if not LEVELING_ENABLED:
         await ctx.send("❌ Leveling is currently disabled.")
         return
     await _ensure_level_data_loaded()
-    member = member or ctx.author
+    member = member if member is not None else ctx.author
     async with _level_data_lock:
         guild_data = _level_data.get(str(ctx.guild.id), {})
         profile = guild_data.get(str(member.id), {})
@@ -904,7 +908,7 @@ async def level(ctx, member: discord.Member = None):
 @bot.command(name="leaderboard", aliases=["levels", "top"])
 @commands.guild_only()
 async def leaderboard(ctx):
-    """Show the top 10 members by level."""
+    """Show the top 10 members by level (current guild members only)."""
     if not LEVELING_ENABLED:
         await ctx.send("❌ Leveling is currently disabled.")
         return
