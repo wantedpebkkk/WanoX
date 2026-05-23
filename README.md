@@ -13,6 +13,7 @@ Developed by **wantedpebkkk** — created because many servers lack proper secur
 | 🔨 **Moderation** | `Wa!kick`, `Wa!ban`, `Wa!unban`, `Wa!mute`, `Wa!unmute`, `Wa!warn`, `Wa!purge` |
 | 🛡️ **Security** | `Wa!lockdown`, `Wa!unlock`, `Wa!serverinfo`, `Wa!userinfo` |
 | 🎫 **Tickets** | `Wa!ticketpanel` (staff) → members click **Open Ticket 🎫** button → **Close 🔒 / Claim 👋** buttons |
+| 🎯 **Leveling** | Auto XP + `Wa!level`, `Wa!leaderboard` |
 
 Default prefix: **`Wa!`** (override with `BOT_PREFIX`)
 
@@ -83,6 +84,13 @@ Set these values in your `.env` (local) or as GitHub Action secrets/variables:
 | `LOG_CHANNEL_ID` | Channel ID for moderation logs | none |
 | `DASHBOARD_HOST` | Dashboard bind host | `0.0.0.0` |
 | `DASHBOARD_PORT` | Dashboard bind port | `5000` |
+| `LEVELING_ENABLED` | Enable/disable XP leveling | `true` |
+| `LEVEL_XP_PER_MESSAGE` | XP gained per message | `15` |
+| `LEVEL_XP_COOLDOWN_SECONDS` | Minimum seconds between XP gains | `60` |
+| `LEVEL_XP_BASE` | Base XP required for level-ups | `100` |
+| `LEVEL_XP_MULTIPLIER` | XP growth multiplier per level | `1.25` |
+| `LEVEL_UP_CHANNEL_ID` | Channel ID for level-up announcements | none |
+| `LEVEL_DATA_PATH` | Path to level data JSON file | `.data/levels.json` |
 
 ---
 
