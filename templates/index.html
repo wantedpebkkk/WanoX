@@ -26,6 +26,7 @@
       </div>
       <h1 id="bot-name">WondeX</h1>
       <p>Real-time stats for your Discord moderation &amp; support bot.</p>
+      <p class="prefix-hint">Prefix: <code>{{ prefix }}</code></p>
       <span class="badge" id="status-badge">● Connecting…</span>
     </section>
 
@@ -50,9 +51,17 @@
         <div class="stat-value" id="uptime">—</div>
         <div class="stat-label">Uptime</div>
       </div>
+      <div class="stat-card">
+        <div class="stat-icon">📶</div>
+        <div class="stat-value" id="latency">—</div>
+        <div class="stat-label">Latency</div>
+      </div>
     </div>
 
-    <p class="refresh-hint">Stats refresh automatically every 30 seconds.</p>
+    <p class="refresh-hint">
+      Stats refresh automatically every 30 seconds.
+      <span id="last-updated">Last update: —</span>
+    </p>
   </main>
 
   <footer class="footer">
@@ -69,6 +78,7 @@
         document.getElementById('member-count').textContent = Number(d.member_count).toLocaleString();
         document.getElementById('command-count').textContent = Number(d.command_count).toLocaleString();
         document.getElementById('uptime').textContent = d.uptime;
+        document.getElementById('latency').textContent = d.latency_ms != null ? `${d.latency_ms} ms` : '—';
 
         if (d.bot_name) document.getElementById('bot-name').textContent = d.bot_name;
 
@@ -91,6 +101,12 @@
           badge.textContent = '● Offline';
           badge.className = 'badge offline';
         }
+
+        const lastUpdated = d.last_updated ? new Date(d.last_updated * 1000) : null;
+        const lastUpdatedEl = document.getElementById('last-updated');
+        lastUpdatedEl.textContent = lastUpdated
+          ? `Last update: ${lastUpdated.toLocaleTimeString()}`
+          : 'Last update: —';
       } catch (e) {
         console.error('Could not fetch stats:', e);
       }

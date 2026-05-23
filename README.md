@@ -14,7 +14,7 @@ Developed by **wantedpebkkk** — created because many servers lack proper secur
 | 🛡️ **Security** | `Wa!lockdown`, `Wa!unlock`, `Wa!serverinfo`, `Wa!userinfo` |
 | 🎫 **Tickets** | `Wa!ticketpanel` (staff) → members click **Open Ticket 🎫** button → **Close 🔒 / Claim 👋** buttons |
 
-Default prefix: **`Wa!`**
+Default prefix: **`Wa!`** (override with `BOT_PREFIX`)
 
 ---
 
@@ -67,6 +67,22 @@ cp .env.example .env
 # Run the bot
 python bot.py
 ```
+
+---
+
+## ⚙️ Configuration
+
+Set these values in your `.env` (local) or as GitHub Action secrets/variables:
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `DISCORD_TOKEN` | Bot token from the Discord Developer Portal | **Required** |
+| `BOT_PREFIX` | Command prefix | `Wa!` |
+| `TICKET_CATEGORY` | Category name for ticket channels | `Tickets` |
+| `WELCOME_CHANNEL_ID` | Channel ID to send welcome messages | none |
+| `LOG_CHANNEL_ID` | Channel ID for moderation logs | none |
+| `DASHBOARD_HOST` | Dashboard bind host | `0.0.0.0` |
+| `DASHBOARD_PORT` | Dashboard bind port | `5000` |
 
 ---
 
